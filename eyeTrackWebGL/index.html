@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>eyeTrackMetaverse</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/osc@2.4.2/dist/osc-browser.min.js"></script>
+</head>
+
+<script>const medias = {
+    audio: false,
+    video: true
+  };
+  const video = document.getElementById("video");
+  const promise = navigator.mediaDevices.getUserMedia(medias);
+
+  promise.then(successCallback)
+    .then(errorCallback);
+
+  function successCallback(stream) {
+    video.srcObject = stream;
+  };
+
+  function errorCallback(err) {
+    alert(err);
+  };</script>
+
+<video class="input_video" autoplay playsinline width="0px" height="0px"></video>
+
+<body style="text-align: center">
+  <canvas id="unity-canvas" width=960 height=600 style="width: 960px; height: 600px; background: #1F1F20"></canvas>
+  <script src="Build/eyeTrackWebGL.loader.js"></script>
+  <script>
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+      // Mobile device style: fill the whole browser client area with the game canvas:
+      var meta = document.createElement('meta');
+      meta.name = 'viewport';
+      meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+      document.getElementsByTagName('head')[0].appendChild(meta);
+    }
+    var unityInstance = null;
+    createUnityInstance(document.querySelector("#unity-canvas"), {
+      dataUrl: "Build/eyeTrackWebGL.data.gz",
+      frameworkUrl: "Build/eyeTrackWebGL.framework.js.gz",
+      codeUrl: "Build/eyeTrackWebGL.wasm.gz",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "DefaultCompany",
+      productName: "aboutMe_0727",
+      productVersion: "1.0",
+      // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
+      // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
+    }).then(x => unityInstance = x);;
+  </script>
+
+  <div class="right">
+    <canvas class="output_canvas" width="270px" height="180px"></canvas>
+  </div>
+
+  <script type="module">const videoElement = document.getElementsByClassName('input_video')[0];
+    const canvasElement = document.getElementsByClassName('output_canvas')[0];
+    const canvasCtx = canvasElement.getContext('2d');
+    var nosetop = null;
+    var rightCheek = null;
+    var leftCheek = null;
+    var forehead = null;
+    var jaw = null;
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(
+        results.image, 0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.fillRect(0, 0, 270, 180);
+      if (results.multiFaceLandmarks) {
+
+        for (const landmarks of results.multiFaceLandmarks) {
+          drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION,
+            { color: '#C0C0C070', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, { color: '#FF3030', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, { color: '#FF3030', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, { color: '#FF3030', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, { color: '#30FF30', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, { color: '#30FF30', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, { color: '#30FF30', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, { color: '#E0E0E0', lineWidth: 0.5 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, { color: '#E0E0E0', lineWidth: 0.5 });
+
+          nosetop = results.multiFaceLandmarks[0][19]
+          rightCheek = results.multiFaceLandmarks[0][187]
+          leftCheek = results.multiFaceLandmarks[0][411]
+          forehead = results.multiFaceLandmarks[0][8]
+          jaw = results.multiFaceLandmarks[0][0]
+          if (Math.abs(nosetop.x - rightCheek.x) < 0.09) {
+            goRight();
+          }
+          else if (Math.abs(nosetop.x - leftCheek.x) < 0.09) {
+            goLeft();
+          }
+          else if (Math.abs(nosetop.y - forehead.y) < 0.15) {
+            goUp();
+          }
+          else if (Math.abs(nosetop.y - jaw.y) < 0.10) {
+            goDown();
+          }
+          else {
+            stay();
+          }
+
+        }
+      }
+      canvasCtx.restore();
+    }
+
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+      }
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+      },
+      width: 540,
+      height: 360
+    });
+    camera.start();</script>
+  <script>
+    function goRight() {
+      if (unityInstance != null) unityInstance.SendMessage('PlayerArmature', 'eye_right');
+    }
+    function goLeft() {
+      if (unityInstance != null) unityInstance.SendMessage('PlayerArmature', 'eye_left');
+    }
+    function goDown() {
+      if (unityInstance != null) unityInstance.SendMessage('PlayerArmature', 'eye_down');
+    }
+    function goUp() {
+      if (unityInstance != null) unityInstance.SendMessage('PlayerArmature', 'eye_up');
+    }
+    function stay() {
+      if (unityInstance != null) unityInstance.SendMessage('PlayerArmature', 'eye_center');
+
+    }
+  </script>
+</body>
+
+</html>
